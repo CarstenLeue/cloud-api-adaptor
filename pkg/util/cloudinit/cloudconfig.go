@@ -7,8 +7,9 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
-	"strings"
 	"text/template"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -39,62 +40,20 @@ type WriteFile struct {
 	Append      string `yaml:"append,omitempty"`
 }
 
-const cloudInitText = `{{/* Template for cloud-config */ -}}
-#cloud-config
-{{- if .WriteFiles }}
-
-write_files:
-{{- range .WriteFiles }}
-  - path: {{ .Path }}
-{{- if .Owner }}
-    owner: {{ .Owner }}
-{{- end }}
-{{- if .Permissions }}
-    permissions: {{ .Permissions }}
-{{- end }}
-{{- if .Encoding }}
-    encoding: {{ .Encoding }}
-{{- end }}
-{{- if .Append }}
-    append: {{ .Append }}
-{{- end }}
-{{- if .Content }}
-    content: |
-{{- range splitLines .Content }}
-      {{ . }}
-{{- end }}
-{{- end }}
-{{- end }}
-{{- end }}
-`
-
-var templateFuncMap = template.FuncMap{
-	"splitLines": splitLines,
-}
-
-func splitLines(text string) []string {
-	lines := strings.Split(text, "\n")
-	if len(lines) == 0 {
-		return nil
-	}
-	if lines[len(lines)-1] == "" {
-		return lines[:len(lines)-1]
-	}
-	return lines
-}
+const cloudInitHeader = "#cloud-config\n"
 
 func (config *CloudConfig) Generate() (string, error) {
-	tpl, err := template.New("base").Funcs(templateFuncMap).Parse(cloudInitText)
-	if err != nil {
-		return "", fmt.Errorf("Error initializing a template for cloudinit userdata: %w", err)
-	}
-
 	var buf bytes.Buffer
-
-	if err := tpl.Execute(&buf, config); err != nil {
-		return "", fmt.Errorf("Error executing a template for cloudinit userdata: %w", err)
+	if _, err := buf.WriteString(cloudInitHeader); err != nil {
+		return "", fmt.Errorf("unable to write header, cause: %w", err)
 	}
-
+	enc := yaml.NewEncoder(&buf)
+	if err := enc.Encode(config); err != nil {
+		return "", fmt.Errorf("unable to encode config, cause: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return "", fmt.Errorf("unable to close encoder, cause: %w", err)
+	}
 	return buf.String(), nil
 }
 
